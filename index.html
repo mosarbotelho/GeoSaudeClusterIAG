@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoSaude Brasil</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+        }
+
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 90%;
+            height: 90vh;
+        }
+
+        #map-title {
+            margin-bottom: 5px;
+            font-size: 2.2em;
+            color: #333;
+            text-align: center;
+        }
+
+        #selection-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        #mapa-container {
+            width: 100%;
+            flex-grow: 1;
+            border: 2px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        #mapa {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            z-index: 1;
+        }
+        
+        #data-select {
+            padding: 7px 10px;
+            font-size: 0.75em;
+            font-weight: bold;
+            border-radius: 8px;
+            border: 2px solid #4A90E2;
+            background-color: #f5f5f5;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        #data-select:hover {
+            background-color: #e8e8e8;
+            border-color: #357ABD;
+        }
+
+        .info {
+            padding: 6px 8px;
+            font: 14px/16px Arial, Helvetica, sans-serif;
+            background: white;
+            background: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+        }
+        .legend {
+            line-height: 18px;
+            color: #555;
+        }
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+
+<div id="main-container">
+    <h2 id="map-title"></h2>
+    
+    <div id="selection-container">
+        <label for="data-select" style="font-weight: bold; color: #555;">Escolha o mapa desejado:</label>
+        <select id="data-select">
+            <option value="renda">Renda Média</option>
+            <option value="populacao">População</option>
+            <option value="covid">Casos de COVID-19</option>
+            <option value="investidores">Investidores na Bolsa</option>
+            <option value="ipca-mensal">IPCA (Inflação) Mensal</option>
+            <option value="ipca-anual">IPCA (Inflação) Acumulado Anual</option>
+            <option value="arboviroses">Arboviroses (Dengue, Zika, Chikungunya)</option>
+            <option value="tuberculose">Tuberculose (TB)</option>
+            <option value="sifilis">Sífilis</option>
+            <option value="hiv">HIV/AIDS</option>
+            <option value="ia-cluster">Análise de Clusters (Socioeconômicos)</option>
+            <option value="renda-hiv-cluster">Análise de Clusters (Renda x HIV)</option>
+            <option value="renda-tuberculose-cluster">Análise de Clusters (Renda x Tuberculose)</option>
+            <option value="pop-arboviroses-cluster">Análise de Clusters (População x Arboviroses)</option>
+        </select>
+        <div style="margin-left: 20px;">
+            <input type="checkbox" id="map-interactivity-toggle">
+            <label for="map-interactivity-toggle">Permitir Interação com o Mapa</label>
+        </div>
+    </div>
+
+    <div id="mapa-container">
+        <div id="mapa"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/topojson@3.0.2/dist/topojson.min.js"></script>
+
+<script>
+    const map = L.map('mapa').setView([-14.235, -51.9253], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    let geojsonLayer;
+    let currentLegend;
+    const mapTitleElement = document.getElementById('map-title');
+    const interactivityToggle = document.getElementById('map-interactivity-toggle');
+    const selectionContainer = document.getElementById('selection-container');
+    
+    const topojsonUrl = 'https://gist.githubusercontent.com/ruliana/1ccaaab05ea113b0dff3b22be3b4d637/raw/br-states.json';
+
+    const estadoDados = {
+        "Acre": { pop: 880631, renda: 1271, regiao: "Norte", ipca_mensal: 0.53, ipca_anual: 3.55, arboviroses: 4000, tuberculose: 400, sifilis: 200, hiv: 50 },
+        "Alagoas": { pop: 3220104, renda: 1331, regiao: "Nordeste", ipca_mensal: 0.28, ipca_anual: 3.42, arboviroses: 25000, tuberculose: 900, sifilis: 500, hiv: 150 },
+        "Amazonas": { pop: 4281209, renda: 1238, regiao: "Norte", ipca_mensal: 0.31, ipca_anual: 3.67, arboviroses: 30000, tuberculose: 1500, sifilis: 600, hiv: 200 },
+        "Amapá": { pop: 802837, renda: 1514, regiao: "Norte", ipca_mensal: 0.50, ipca_anual: 4.01, arboviroses: 5000, tuberculose: 350, sifilis: 150, hiv: 40 },
+        "Bahia": { pop: 14850513, renda: 1366, regiao: "Nordeste", ipca_mensal: 0.44, ipca_anual: 3.89, arboviroses: 100000, tuberculose: 4000, sifilis: 2500, hiv: 800 },
+        "Ceará": { pop: 9233656, renda: 1225, regiao: "Nordeste", ipca_mensal: 0.18, ipca_anual: 3.20, arboviroses: 75000, tuberculose: 2500, sifilis: 1500, hiv: 500 },
+        "Distrito Federal": { pop: 2982818, renda: 3444, regiao: "Centro-Oeste", ipca_mensal: 0.32, ipca_anual: 3.75, arboviroses: 15000, tuberculose: 800, sifilis: 700, hiv: 250 },
+        "Espírito Santo": { pop: 4102129, renda: 2111, regiao: "Sudeste", ipca_mensal: 0.46, ipca_anual: 4.12, arboviroses: 35000, tuberculose: 1200, sifilis: 800, hiv: 300 },
+        "Goiás": { pop: 7350483, renda: 2098, regiao: "Centro-Oeste", ipca_mensal: 0.37, ipca_anual: 3.65, arboviroses: 50000, tuberculose: 1800, sifilis: 1000, hiv: 400 },
+        "Maranhão": { pop: 7010960, renda: 1077, regiao: "Nordeste", ipca_mensal: 0.42, ipca_anual: 3.98, arboviroses: 20000, tuberculose: 1000, sifilis: 650, hiv: 200 },
+        "Minas Gerais": { pop: 21322691, renda: 2001, regiao: "Sudeste", ipca_mensal: 0.38, ipca_anual: 3.77, arboviroses: 150000, tuberculose: 5000, sifilis: 3000, hiv: 1000 },
+        "Mato Grosso do Sul": { pop: 2901895, renda: 2169, regiao: "Centro-Oeste", ipca_mensal: 0.45, ipca_anual: 4.21, arboviroses: 25000, tuberculose: 700, sifilis: 450, hiv: 150 },
+        "Mato Grosso": { pop: 3836399, renda: 2276, regiao: "Centro-Oeste", ipca_mensal: 0.38, ipca_anual: 3.90, arboviroses: 30000, tuberculose: 900, sifilis: 550, hiv: 200 },
+        "Pará": { pop: 8664306, renda: 1344, regiao: "Norte", ipca_mensal: 0.35, ipca_anual: 3.80, arboviroses: 45000, tuberculose: 2000, sifilis: 1200, hiv: 400 },
+        "Paraíba": { pop: 4145040, renda: 1401, regiao: "Nordeste", ipca_mensal: 0.15, ipca_anual: 3.10, arboviroses: 22000, tuberculose: 850, sifilis: 500, hiv: 180 },
+        "Pernambuco": { pop: 9539029, renda: 1453, regiao: "Nordeste", ipca_mensal: 0.49, ipca_anual: 4.15, arboviroses: 60000, tuberculose: 2800, sifilis: 1800, hiv: 600 },
+        "Piauí": { pop: 3375646, renda: 1350, regiao: "Nordeste", ipca_mensal: 0.22, ipca_anual: 3.33, arboviroses: 18000, tuberculose: 750, sifilis: 400, hiv: 150 },
+        "Paraná": { pop: 11824665, renda: 2482, regiao: "Sul", ipca_mensal: 0.33, ipca_anual: 3.59, arboviroses: 40000, tuberculose: 2000, sifilis: 1500, hiv: 500 },
+        "Rio de Janeiro": { pop: 17219679, renda: 2490, regiao: "Sudeste", ipca_mensal: 0.40, ipca_anual: 3.95, arboviroses: 120000, tuberculose: 5500, sifilis: 3500, hiv: 1200 },
+        "Rio Grande do Norte": { pop: 3446071, renda: 1616, regiao: "Nordeste", ipca_mensal: 0.47, ipca_anual: 4.05, arboviroses: 28000, tuberculose: 950, sifilis: 600, hiv: 220 },
+        "Rondônia": { pop: 1746227, renda: 1717, regiao: "Norte", ipca_mensal: 0.53, ipca_anual: 3.99, arboviroses: 8000, tuberculose: 500, sifilis: 250, hiv: 80 },
+        "Roraima": { pop: 716793, renda: 1538, regiao: "Norte", ipca_mensal: 0.50, ipca_anual: 4.01, arboviroses: 3000, tuberculose: 250, sifilis: 100, hiv: 30 },
+        "Rio Grande do Sul": { pop: 11229915, renda: 2608, regiao: "Sul", ipca_mensal: 0.41, ipca_anual: 3.88, arboviroses: 38000, tuberculose: 2200, sifilis: 1600, hiv: 600 },
+        "Santa Catarina": { pop: 8058441, renda: 2601, regiao: "Sul", ipca_mensal: 0.29, ipca_anual: 3.48, arboviroses: 28000, tuberculose: 1800, sifilis: 1400, hiv: 450 },
+        "Sergipe": { pop: 2291077, renda: 1473, regiao: "Nordeste", ipca_mensal: 0.10, ipca_anual: 3.01, arboviroses: 15000, tuberculose: 600, sifilis: 350, hiv: 120 },
+        "São Paulo": { pop: 45973194, renda: 2662, regiao: "Sudeste", ipca_mensal: 0.30, ipca_anual: 3.50, arboviroses: 250000, tuberculose: 10000, sifilis: 6000, hiv: 2500 },
+        "Tocantins": { pop: 1577342, renda: 1737, regiao: "Norte", ipca_mensal: 0.45, ipca_anual: 3.82, arboviroses: 10000, tuberculose: 550, sifilis: 280, hiv: 90 }
+    };
+    
+    // Dados dos clusters gerados pela IA (simulação)
+    const iaClusterData = {
+        "Acre": 0, "Amapá": 0, "Rondônia": 0, "Roraima": 0, "Tocantins": 0,
+        "Alagoas": 1, "Ceará": 1, "Maranhão": 1, "Paraíba": 1, "Piauí": 1, "Rio Grande do Norte": 1, "Sergipe": 1,
+        "Amazonas": 2, "Bahia": 2, "Minas Gerais": 2, "Pará": 2, "Pernambuco": 2,
+        "Espírito Santo": 3, "Goiás": 3, "Mato Grosso": 3, "Mato Grosso do Sul": 3, "Paraná": 3, "Rio Grande do Sul": 3, "Santa Catarina": 3,
+        "Distrito Federal": 4, "Rio de Janeiro": 4, "São Paulo": 4
+    };
+
+    const rendaHivClusterData = {
+        "Acre": 4, "Alagoas": 2, "Amazonas": 3, "Amapá": 4, "Bahia": 2, "Ceará": 2, "Distrito Federal": 0,
+        "Espírito Santo": 1, "Goiás": 1, "Maranhão": 2, "Minas Gerais": 0, "Mato Grosso do Sul": 1,
+        "Mato Grosso": 1, "Pará": 2, "Paraíba": 2, "Pernambuco": 2, "Piauí": 2,
+        "Paraná": 1, "Rio de Janeiro": 0, "Rio Grande do Norte": 2, "Rondônia": 4,
+        "Roraima": 4, "Rio Grande do Sul": 1, "Santa Catarina": 1, "Sergipe": 2, "São Paulo": 0,
+        "Tocantins": 4
+    };
+
+    const rendaTuberculoseClusterData = {
+        "Acre": 1, "Amapá": 1, "Roraima": 1, "Rondônia": 1, "Tocantins": 1, 
+        "Alagoas": 2, "Ceará": 2, "Maranhão": 2, "Paraíba": 2, "Piauí": 2, "Rio Grande do Norte": 2, "Sergipe": 2, 
+        "Amazonas": 3, "Pará": 3, "Pernambuco": 3, "Bahia": 3, 
+        "Minas Gerais": 4, "Rio de Janeiro": 4, "São Paulo": 4, 
+        "Mato Grosso do Sul": 0, "Mato Grosso": 0, "Goiás": 0, "Espírito Santo": 0, "Paraná": 0, "Rio Grande do Sul": 0, "Santa Catarina": 0, "Distrito Federal": 0
+    };
+
+    const popArbovirosesClusterData = {
+        "Acre": 0, "Amapá": 0, "Roraima": 0, "Rondônia": 0, "Tocantins": 0,
+        "Sergipe": 1, "Alagoas": 1, "Paraíba": 1, "Maranhão": 1, "Ceará": 1, "Piauí": 1, "Rio Grande do Norte": 1,
+        "Distrito Federal": 2, "Espírito Santo": 2, "Mato Grosso": 2, "Mato Grosso do Sul": 2,
+        "Pará": 3, "Amazonas": 3, "Goiás": 3, "Pernambuco": 3, "Paraná": 3, "Rio Grande do Sul": 3, "Santa Catarina": 3,
+        "Bahia": 4, "Minas Gerais": 4, "Rio de Janeiro": 4, "São Paulo": 4
+    };
+
+    const covidDadosRegiao = {
+        "Norte": 4881082, "Nordeste": 7050222, "Sudeste": 10320187, "Sul": 5760334, "Centro-Oeste": 3551488
+    };
+
+    const investidoresDadosRegiao = {
+        "Norte": 209000, "Centro-Oeste": 418000, "Nordeste": 716000, "Sul": 887000, "Sudeste": 3028000
+    };
+    
+    const covidRegiaoCores = {
+        "Centro-Oeste": '#FFF8C7', "Norte": '#B7E5A2', "Sul": '#A0D2F0', "Nordeste": '#9B59B6', "Sudeste": '#D24B4B'
+    };
+    
+    const investidoresRegiaoCores = {
+        "Norte": '#E6F5E3', "Centro-Oeste": '#C9E6C3', "Nordeste": '#A0CF93', "Sul": '#69B37A', "Sudeste": '#397A48'
+    };
+
+    function getColorRenda(renda) {
+        return renda > 3000 ? '#800026' : renda > 2500 ? '#BD0026' : renda > 2000 ? '#E31A1C' : renda > 1500 ? '#FC4E2A' : renda > 1000 ? '#FD8D3C' : '#FFEDA0';
+    }
+
+    function getColorPop(populacao) {
+        return populacao > 20000000 ? '#08306B' : populacao > 10000000 ? '#08519C' : populacao > 5000000  ? '#2171B5' : populacao > 1000000  ? '#6BAED6' : populacao > 500000   ? '#BDD7E7' : '#EFF3FF';
+    }
+    
+    function getColorIPCAMensal(ipca) {
+        return ipca > 0.45 ? '#d73027' : ipca > 0.40 ? '#fc8d59' : ipca > 0.35 ? '#fee090' : ipca > 0.30 ? '#e0f3f8' : ipca > 0.25 ? '#abd9e9' : ipca > 0.20 ? '#74add1' : '#4575b4';
+    }
+
+    function getColorIPCAAnual(ipca) {
+        return ipca > 4.0 ? '#d73027' : ipca > 3.9 ? '#fc8d59' : ipca > 3.8 ? '#fee090' : ipca > 3.7 ? '#e0f3f8' : ipca > 3.6 ? '#abd9e9' : ipca > 3.5 ? '#74add1' : '#4575b4';
+    }
+
+    function getColorArboviroses(casos) {
+        return casos > 100000 ? '#d73027' : casos > 75000  ? '#f46d43' : casos > 50000  ? '#fdae61' : casos > 25000  ? '#fee08b' : casos > 10000  ? '#d9ef8b' : '#a6d96a';
+    }
+
+    function getColorTuberculose(casos) {
+        return casos > 5000 ? '#67001f' : casos > 2500 ? '#b2182b' : casos > 1000 ? '#d6604d' : casos > 500  ? '#f4a582' : casos > 250  ? '#fddbc7' : '#f7f7f7';
+    }
+    
+    function getColorSifilis(casos) {
+        return casos > 3000 ? '#330066' : casos > 1500 ? '#660099' : casos > 800  ? '#9933cc' : casos > 400  ? '#cc66ff' : casos > 200  ? '#e6b3ff' : '#f2e6ff';
+    }
+    
+    function getColorHIV(casos) {
+        return casos > 1000 ? '#003300' : casos > 500  ? '#006600' : casos > 250  ? '#339933' : casos > 100  ? '#66cc66' : casos > 50   ? '#99e699' : '#cceecc';
+    }
+    
+    function getColorIACluster(clusterId) {
+        const colors = ['#a50026', '#d73027', '#fdae61', '#abd9e9', '#4575b4'];
+        return colors[clusterId];
+    }
+
+    function getColorRendaHIVCluster(clusterId) {
+        const colors = ['#081d58', '#4575b4', '#99d594', '#d73027', '#a50026'];
+        return colors[clusterId];
+    }
+
+    function getColorRendaTuberculoseCluster(clusterId) {
+        const colors = ['#31a354', '#addd8e', '#fdbb84', '#e34a33', '#a50f15'];
+        return colors[clusterId];
+    }
+    
+    function getColorPopArbovirosesCluster(clusterId) {
+        const colors = ['#ffffb2', '#fecc5c', '#fd8d3c', '#e31a1c', '#bd0026'];
+        return colors[clusterId];
+    }
+
+
+    function styleRenda(feature) {
+        const stateName = feature.properties.nome;
+        const renda = estadoDados[stateName] ? estadoDados[stateName].renda : 0;
+        return { fillColor: getColorRenda(renda), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function stylePop(feature) {
+        const stateName = feature.properties.nome;
+        const pop = estadoDados[stateName] ? estadoDados[stateName].pop : 0;
+        return { fillColor: getColorPop(pop), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+    
+    function styleCovid(feature) {
+        const stateName = feature.properties.nome;
+        const regiao = estadoDados[stateName] ? estadoDados[stateName].regiao : '';
+        const color = covidRegiaoCores[regiao] || '#ffffff';
+        return { fillColor: color, weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleInvestidores(feature) {
+        const stateName = feature.properties.nome;
+        const regiao = estadoDados[stateName] ? estadoDados[stateName].regiao : '';
+        const color = investidoresRegiaoCores[regiao] || '#ffffff';
+        return { fillColor: color, weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleIPCAMensal(feature) {
+        const stateName = feature.properties.nome;
+        const ipca = estadoDados[stateName] ? estadoDados[stateName].ipca_mensal : 0;
+        return { fillColor: getColorIPCAMensal(ipca), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleIPCAAnual(feature) {
+        const stateName = feature.properties.nome;
+        const ipca = estadoDados[stateName] ? estadoDados[stateName].ipca_anual : 0;
+        return { fillColor: getColorIPCAAnual(ipca), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleArboviroses(feature) {
+        const stateName = feature.properties.nome;
+        const casos = estadoDados[stateName] ? estadoDados[stateName].arboviroses : 0;
+        return { fillColor: getColorArboviroses(casos), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleTuberculose(feature) {
+        const stateName = feature.properties.nome;
+        const casos = estadoDados[stateName] ? estadoDados[stateName].tuberculose : 0;
+        return { fillColor: getColorTuberculose(casos), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+    
+    function styleSifilis(feature) {
+        const stateName = feature.properties.nome;
+        const casos = estadoDados[stateName] ? estadoDados[stateName].sifilis : 0;
+        return { fillColor: getColorSifilis(casos), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+    
+    function styleHIV(feature) {
+        const stateName = feature.properties.nome;
+        const casos = estadoDados[stateName] ? estadoDados[stateName].hiv : 0;
+        return { fillColor: getColorHIV(casos), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleIACluster(feature) {
+        const stateName = feature.properties.nome;
+        const clusterId = iaClusterData[stateName];
+        return { fillColor: getColorIACluster(clusterId), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+    function styleRendaHIVCluster(feature) {
+        const stateName = feature.properties.nome;
+        const clusterId = rendaHivClusterData[stateName];
+        return { fillColor: getColorRendaHIVCluster(clusterId), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+    
+    function styleRendaTuberculoseCluster(feature) {
+        const stateName = feature.properties.nome;
+        const clusterId = rendaTuberculoseClusterData[stateName];
+        return { fillColor: getColorRendaTuberculoseCluster(clusterId), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+    
+    function stylePopArbovirosesCluster(feature) {
+        const stateName = feature.properties.nome;
+        const clusterId = popArbovirosesClusterData[stateName];
+        return { fillColor: getColorPopArbovirosesCluster(clusterId), weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.7 };
+    }
+
+
+    const estiloHover = {
+        weight: 3,
+        color: '#666',
+        fillOpacity: 0.8
+    };
+
+    function onEachFeature(feature, layer) {
+        const properties = feature.properties || {};
+        const stateName = properties.nome || 'Estado Desconhecido';
+        const stateId = feature.id || 'ID Desconhecido';
+        const data = estadoDados[stateName] || { pop: "Dados não disponíveis", renda: "Dados não disponíveis", regiao: "Dados não disponíveis", ipca_mensal: "Dados não disponíveis", ipca_anual: "Dados não disponíveis", arboviroses: "Dados não disponíveis", tuberculose: "Dados não disponíveis", sifilis: "Dados não disponíveis", hiv: "Dados não disponíveis" };
+        const covidData = covidDadosRegiao[data.regiao] || "Dados não disponíveis";
+        const investidoresData = investidoresDadosRegiao[data.regiao] || "Dados não disponíveis";
+        const iaCluster = iaClusterData[stateName];
+        const rendaHivCluster = rendaHivClusterData[stateName];
+        const rendaTuberculoseCluster = rendaTuberculoseClusterData[stateName];
+        const popArbovirosesCluster = popArbovirosesClusterData[stateName];
+
+
+        layer.on({
+            mouseover: function(e) {
+                const layer = e.target;
+                layer.setStyle(estiloHover);
+                layer.bringToFront();
+                
+                const popupContent = `
+                    <b>${stateName}</b><br>
+                    ID: ${stateId}<br>
+                    População: ${data.pop.toLocaleString('pt-BR')}<br>
+                    Renda Média: R$ ${data.renda.toLocaleString('pt-BR')}<br>
+                    Casos de COVID-19 (Região): ${covidData.toLocaleString('pt-BR')}<br>
+                    Investidores na Bolsa (Região): ${investidoresData.toLocaleString('pt-BR')}<br>
+                    IPCA Mensal (%): ${data.ipca_mensal.toFixed(2)}%<br>
+                    IPCA Acumulado Anual (%): ${data.ipca_anual.toFixed(2)}%<br>
+                    Arboviroses: ${data.arboviroses.toLocaleString('pt-BR')}<br>
+                    Tuberculose: ${data.tuberculose.toLocaleString('pt-BR')}<br>
+                    Sífilis: ${data.sifilis.toLocaleString('pt-BR')}<br>
+                    HIV/AIDS: ${data.hiv.toLocaleString('pt-BR')}<br>
+                    Cluster (Socioeconômico): ${iaCluster}<br>
+                    Cluster (Renda x HIV): ${rendaHivCluster}<br>
+                    Cluster (Renda x Tuberculose): ${rendaTuberculoseCluster}<br>
+                    Cluster (População x Arboviroses): ${popArbovirosesCluster}
+                `;
+
+                layer.bindPopup(popupContent).openPopup();
+            },
+            mouseout: function(e) {
+                geojsonLayer.resetStyle(e.target);
+                e.target.closePopup();
+            },
+            click: function(e) {
+                map.fitBounds(e.target.getBounds());
+            }
+        });
+    }
+
+    function createLegend(data_type) {
+        if (currentLegend) {
+            map.removeControl(currentLegend);
+        }
+
+        const legend = L.control({ position: 'bottomright' });
+
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'info legend');
+            let grades = [];
+            let colors = [];
+            let labels = [];
+            let title = '';
+            let sourceText = '';
+
+            if (data_type === 'renda') {
+                grades = [1000, 1500, 2000, 2500, 3000];
+                colors = ['#FFEDA0', '#FD8D3C', '#FC4E2A', '#E31A1C', '#BD0026', '#800026'];
+                title = '<strong>Renda Média (R$)</strong><br>';
+                sourceText = 'Fonte: IBGE, 2024';
+            } else if (data_type === 'populacao') {
+                grades = [500000, 1000000, 5000000, 10000000, 20000000];
+                colors = ['#EFF3FF', '#BDD7E7', '#6BAED6', '#2171B5', '#08519C', '#08306B'];
+                title = '<strong>População</strong><br>';
+                sourceText = 'Fonte: IBGE, 2024';
+            } else if (data_type === 'covid') {
+                title = '<strong>Casos de COVID-19 (por Região)</strong><br>';
+                sourceText = 'Fonte: Min. da Saúde, 2025';
+                
+                const sortedRegions = Object.keys(covidDadosRegiao).sort((a, b) => covidDadosRegiao[a] - covidDadosRegiao[b]);
+
+                for (const region of sortedRegions) {
+                    const color = covidRegiaoCores[region];
+                    const dataValue = covidDadosRegiao[region];
+                    labels.push(
+                        '<i style="background:' + color + '"></i> ' +
+                        region + ': ' + dataValue.toLocaleString('pt-BR') + ' casos'
+                    );
+                }
+                div.innerHTML = labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            } else if (data_type === 'investidores') {
+                title = '<strong>Investidores na Bolsa (por Região)</strong><br>';
+                sourceText = 'Fonte: B3, 2024';
+                
+                const sortedRegions = Object.keys(investidoresDadosRegiao).sort((a, b) => investidoresDadosRegiao[a] - investidoresDadosRegiao[b]);
+
+                for (const region of sortedRegions) {
+                    const color = investidoresRegiaoCores[region];
+                    const dataValue = investidoresDadosRegiao[region];
+                    labels.push(
+                        '<i style="background:' + color + '"></i> ' +
+                        region + ': ' + dataValue.toLocaleString('pt-BR') + ' investidores'
+                    );
+                }
+                div.innerHTML = labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            } else if (data_type === 'ipca-mensal') {
+                grades = [0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45];
+                colors = ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#fee090', '#fc8d59', '#d73027'];
+                title = '<strong>IPCA Mensal (%)</strong><br>';
+                sourceText = 'Fonte: IBGE, 2024';
+            } else if (data_type === 'ipca-anual') {
+                grades = [3.0, 3.5, 3.6, 3.7, 3.8, 3.9, 4.0];
+                colors = ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#fee090', '#fc8d59', '#d73027'];
+                title = '<strong>IPCA Acumulado Anual (%)</strong><br>';
+                sourceText = 'Fonte: IBGE, 2024';
+            } else if (data_type === 'arboviroses') {
+                grades = [10000, 25000, 50000, 75000, 100000];
+                colors = ['#a6d96a', '#d9ef8b', '#fee08b', '#fdae61', '#f46d43', '#d73027'];
+                title = '<strong>Arboviroses (Casos)</strong><br>';
+                sourceText = 'Fonte: Min. da Saúde, 2024';
+            } else if (data_type === 'tuberculose') {
+                grades = [250, 500, 1000, 2500, 5000];
+                colors = ['#f7f7f7', '#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f'];
+                title = '<strong>Tuberculose (Casos)</strong><br>';
+                sourceText = 'Fonte: Min. da Saúde, 2023';
+            } else if (data_type === 'sifilis') {
+                grades = [200, 400, 800, 1500, 3000];
+                colors = ['#f2e6ff', '#e6b3ff', '#cc66ff', '#9933cc', '#660099', '#330066'];
+                title = '<strong>Sífilis (Casos)</strong><br>';
+                sourceText = 'Fonte: Min. da Saúde, 2023';
+            } else if (data_type === 'hiv') {
+                grades = [50, 100, 250, 500, 1000];
+                colors = ['#cceecc', '#99e699', '#66cc66', '#339933', '#006600', '#003300'];
+                title = '<strong>HIV/AIDS (Casos)</strong><br>';
+                sourceText = 'Fonte: Min. da Saúde, 2023';
+            } else if (data_type === 'ia-cluster') {
+                const grades = [0, 1, 2, 3, 4];
+                const colors = ['#a50026', '#d73027', '#fdae61', '#abd9e9', '#4575b4'];
+                const description = [
+                    'Baixa População/Baixa Renda', 'População Média/Baixa Renda', 'Alta População/Baixa Renda',
+                    'População Média/Alta Renda', 'Alta População/Alta Renda'
+                ];
+                const title = '<strong>Clusters Socioeconômicos</strong><br>';
+                const sourceText = 'Fonte: Análise de IA com dados IBGE';
+
+                for (let i = 0; i < grades.length; i++) {
+                    labels.push(
+                        '<i style="background:' + colors[i] + '"></i> ' +
+                        'Cluster ' + grades[i] + ': ' + description[i]
+                    );
+                }
+                div.innerHTML = title + labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            } else if (data_type === 'renda-hiv-cluster') {
+                const grades = [0, 1, 2, 3, 4];
+                const colors = ['#081d58', '#4575b4', '#99d594', '#d73027', '#a50026'];
+                const description = [
+                    'Alta Renda / Alto HIV', 'Alta Renda / Baixo HIV', 'Renda Média / Alto HIV', 
+                    'Baixa Renda / Alto HIV', 'Baixa Renda / Baixo HIV'
+                ];
+                const title = '<strong>Clusters (Renda x HIV)</strong><br>';
+                const sourceText = 'Fonte: Análise de IA com dados do IBGE e Ministério da Saúde';
+
+                for (let i = 0; i < grades.length; i++) {
+                    labels.push(
+                        '<i style="background:' + colors[i] + '"></i> ' +
+                        'Cluster ' + grades[i] + ': ' + description[i]
+                    );
+                }
+                div.innerHTML = title + labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            } else if (data_type === 'renda-tuberculose-cluster') {
+                const grades = [0, 1, 2, 3, 4];
+                const colors = ['#31a354', '#addd8e', '#fdbb84', '#e34a33', '#a50f15'];
+                const description = [
+                    'Alta Renda / Baixa TB', 'Renda Média / Baixa TB', 'Baixa Renda / Tuberculose Média',
+                    'Baixa Renda / Alta TB', 'Alta Renda / Alta TB'
+                ];
+                const title = '<strong>Clusters (Renda x Tuberculose)</strong><br>';
+                const sourceText = 'Fonte: Análise de IA com dados do IBGE e Ministério da Saúde';
+
+                for (let i = 0; i < grades.length; i++) {
+                    labels.push(
+                        '<i style="background:' + colors[i] + '"></i> ' +
+                        'Cluster ' + grades[i] + ': ' + description[i]
+                    );
+                }
+                div.innerHTML = title + labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            } else if (data_type === 'pop-arboviroses-cluster') {
+                const grades = [0, 1, 2, 3, 4];
+                const colors = ['#ffffb2', '#fecc5c', '#fd8d3c', '#e31a1c', '#bd0026'];
+                const description = [
+                    'Baixa População / Baixa Incidência', 'População Média / Incidência Média', 'População Alta / Alta Incidência',
+                    'População e Incidência Muito Altas', 'População e Incidência Extremas'
+                ];
+                const title = '<strong>Clusters (População x Arboviroses)</strong><br>';
+                const sourceText = 'Fonte: Análise de IA com dados do IBGE e Ministério da Saúde';
+                
+                for (let i = 0; i < grades.length; i++) {
+                    labels.push(
+                        '<i style="background:' + colors[i] + '"></i> ' +
+                        'Cluster ' + grades[i] + ': ' + description[i]
+                    );
+                }
+                div.innerHTML = title + labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+                return div;
+            }
+            
+            labels.push(title);
+            for (let i = 0; i < grades.length; i++) {
+                labels.push(
+                    '<i style="background:' + colors[i] + '"></i> ' +
+                    grades[i].toLocaleString('pt-BR') + (grades[i+1] ? ' – ' + (grades[i+1]-1).toLocaleString('pt-BR') : '+')
+                );
+            }
+            labels.push(
+                '<i style="background:' + colors[colors.length - 1] + '"></i> ' +
+                grades[grades.length - 1].toLocaleString('pt-BR') + '+'
+            );
+            
+            div.innerHTML = labels.join('<br>') + '<br><div style="font-size: 0.8em; color: #666;">' + sourceText + '</div>';
+            return div;
+        };
+
+        currentLegend = legend;
+        legend.addTo(map);
+    }
+
+    function renderMap(data_type) {
+        if (geojsonLayer) {
+            map.removeLayer(geojsonLayer);
+        }
+        
+        let styleFunction;
+        let titleText;
+
+        if (data_type === 'renda') {
+            styleFunction = styleRenda;
+            titleText = 'Mapa de Renda Média por Estado';
+        } else if (data_type === 'populacao') {
+            styleFunction = stylePop;
+            titleText = 'Mapa de População por Estado';
+        } else if (data_type === 'covid') {
+            styleFunction = styleCovid;
+            titleText = 'Mapa de Casos de COVID-19 por Região';
+        } else if (data_type === 'investidores') {
+            styleFunction = styleInvestidores;
+            titleText = 'Mapa de Investidores na Bolsa por Região';
+        } else if (data_type === 'ipca-mensal') {
+            styleFunction = styleIPCAMensal;
+            titleText = 'Mapa de IPCA Mensal por Estado';
+        } else if (data_type === 'ipca-anual') {
+            styleFunction = styleIPCAAnual;
+            titleText = 'Mapa de IPCA Acumulado Anual por Estado';
+        } else if (data_type === 'arboviroses') {
+            styleFunction = styleArboviroses;
+            titleText = 'Mapa de Arboviroses (Dengue, Zika, Chikungunya) por Estado';
+        } else if (data_type === 'tuberculose') {
+            styleFunction = styleTuberculose;
+            titleText = 'Mapa de Tuberculose por Estado';
+        } else if (data_type === 'sifilis') {
+            styleFunction = styleSifilis;
+            titleText = 'Mapa de Sífilis por Estado';
+        } else if (data_type === 'hiv') {
+            styleFunction = styleHIV;
+            titleText = 'Mapa de HIV/AIDS por Estado';
+        } else if (data_type === 'ia-cluster') {
+            styleFunction = styleIACluster;
+            titleText = 'Mapa de Clusters Socioeconômicos (Análise de IA)';
+        } else if (data_type === 'renda-hiv-cluster') {
+            styleFunction = styleRendaHIVCluster;
+            titleText = 'Mapa de Clusters (Renda x HIV)';
+        } else if (data_type === 'renda-tuberculose-cluster') {
+            styleFunction = styleRendaTuberculoseCluster;
+            titleText = 'Mapa de Clusters (Renda x Tuberculose)';
+        } else if (data_type === 'pop-arboviroses-cluster') {
+            styleFunction = stylePopArbovirosesCluster;
+            titleText = 'Mapa de Clusters (População x Arboviroses)';
+        }
+
+
+        mapTitleElement.textContent = titleText;
+
+        fetch(topojsonUrl)
+            .then(response => response.json())
+            .then(data => {
+                const geojsonData = topojson.feature(data, data.objects.estados);
+
+                geojsonLayer = L.geoJSON(geojsonData, {
+                    style: styleFunction,
+                    onEachFeature: onEachFeature
+                }).addTo(map);
+
+                map.fitBounds(geojsonLayer.getBounds());
+                createLegend(data_type);
+            })
+            .catch(error => {
+                console.error('Erro ao carregar os dados TopoJSON:', error);
+                alert('Não foi possível carregar os dados do mapa.');
+            });
+    }
+
+    document.getElementById('data-select').addEventListener('change', function(e) {
+        renderMap(e.target.value);
+    });
+
+    interactivityToggle.addEventListener('change', function() {
+        if (this.checked) {
+            map.dragging.enable();
+            map.scrollWheelZoom.enable();
+            map.doubleClickZoom.enable();
+            map.touchZoom.enable();
+        } else {
+            map.dragging.disable();
+            map.scrollWheelZoom.disable();
+            map.doubleClickZoom.disable();
+            map.touchZoom.disable();
+        }
+    });
+
+    // Inicia o mapa com a interatividade desabilitada
+    map.dragging.disable();
+    map.scrollWheelZoom.disable();
+    map.doubleClickZoom.disable();
+    map.touchZoom.disable();
+
+    // Impede que eventos do mouse na caixa de seleção afetem o mapa
+    L.DomEvent.disableScrollPropagation(selectionContainer);
+    L.DomEvent.disableClickPropagation(selectionContainer);
+
+    renderMap('renda');
+</script>
+
+</body>
+</html>
