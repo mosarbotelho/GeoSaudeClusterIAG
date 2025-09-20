@@ -119,10 +119,6 @@
             <option value="renda-tuberculose-cluster">Análise de Clusters (Renda x Tuberculose)</option>
             <option value="pop-arboviroses-cluster">Análise de Clusters (População x Arboviroses)</option>
         </select>
-        <div style="margin-left: 20px;">
-            <input type="checkbox" id="map-interactivity-toggle">
-            <label for="map-interactivity-toggle">Permitir Interação com o Mapa</label>
-        </div>
     </div>
 
     <div id="mapa-container">
@@ -142,9 +138,11 @@
     let geojsonLayer;
     let currentLegend;
     const mapTitleElement = document.getElementById('map-title');
-    const interactivityToggle = document.getElementById('map-interactivity-toggle');
     const selectionContainer = document.getElementById('selection-container');
     
+    // Adiciona a escala ao mapa
+    L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+
     const topojsonUrl = 'https://gist.githubusercontent.com/ruliana/1ccaaab05ea113b0dff3b22be3b4d637/raw/br-states.json';
 
     const estadoDados = {
@@ -682,21 +680,7 @@
         renderMap(e.target.value);
     });
 
-    interactivityToggle.addEventListener('change', function() {
-        if (this.checked) {
-            map.dragging.enable();
-            map.scrollWheelZoom.enable();
-            map.doubleClickZoom.enable();
-            map.touchZoom.enable();
-        } else {
-            map.dragging.disable();
-            map.scrollWheelZoom.disable();
-            map.doubleClickZoom.disable();
-            map.touchZoom.disable();
-        }
-    });
-
-    // Inicia o mapa com a interatividade desabilitada
+    // Desabilita todas as interações do mapa por padrão (sem o checkbox)
     map.dragging.disable();
     map.scrollWheelZoom.disable();
     map.doubleClickZoom.disable();
